@@ -19,6 +19,7 @@ class AudioEngine: NSObject {
     private var reverb: AVAudioUnitReverb!
     private var delay: AVAudioUnitDelay!
     private var shift: AVAudioUnitTimePitch!
+    private var mixer: AVAudioMixerNode!
     
     private var playerNode: AVAudioPlayerNode!
     
@@ -75,6 +76,8 @@ class AudioEngine: NSObject {
         let input = engine.inputNode
         let format = input.inputFormat(forBus: 0)
         
+        mixer = AVAudioMixerNode()
+        
         playerNode = AVAudioPlayerNode()
         
         distortion = AVAudioUnitDistortion()
@@ -96,12 +99,15 @@ class AudioEngine: NSObject {
         engine.attach(reverb)
         engine.attach(delay)
         engine.attach(shift)
+        engine.attach(mixer)
         
         engine.connect(playerNode, to: distortion, format: format)
         engine.connect(distortion, to: reverb, format: format)
         engine.connect(reverb, to: delay, format: format)
         engine.connect(delay, to: shift, format: format)
-        engine.connect(shift, to: engine.mainMixerNode, format: format)
+        engine.connect(shift, to: mixer, format: format)
+        
+        engine.connect(mixer, to: engine.mainMixerNode, format: format)
         
  
         try! engine.start()
@@ -157,46 +163,36 @@ class AudioEngine: NSObject {
         do {
             let audioFile = try AVAudioFile(forReading: audioRecorder.url)
             
+
+            let tapFormat = mixer.outputFormat(forBus: 0)
             
-            let settings = [
-                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                AVSampleRateKey: 12000,
-                AVNumberOfChannelsKey: 1,
-                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-            ]
+            let fileName = getDocumentsDirectory().appendingPathComponent("processed_recording.caf")
+            let recordedFile = try AVAudioFile(forWriting: fileName, settings: tapFormat.settings)
+
             
-            
-            let fileName = getDocumentsDirectory().appendingPathComponent("processed_recording.mp4")
-            let recordedFile = try AVAudioFile(forWriting: fileName, settings: settings)
-            
-            
-            let tapFormat = engine.mainMixerNode.outputFormat(forBus: 0)
-            
-            
-            engine.mainMixerNode.installTap(onBus: 0, bufferSize: AVAudioFrameCount(audioFile.length), format: tapFormat) {
+        
+
+            mixer.installTap(onBus: 0, bufferSize: AVAudioFrameCount(audioFile.length), format: tapFormat) {
                 buffer, _ in
-                
+
                 do {
-                    
-                    if recordedFile.length < audioFile.length {
-                        try recordedFile.write(from: buffer)
-                    }
-                    
-                    
+
+                    try recordedFile.write(from: buffer)
+
                 } catch {
-                    
+
                 }
-                
-                
+
+
             }
-            
+
             
             
             playerNode.scheduleFile(audioFile, at: nil, completionHandler: nil)
             playerNode.play()
             
         } catch {
-            print ("could not schedule file")
+            print ("could not schedule file \(error .localizedDescription)")
         }
         
       

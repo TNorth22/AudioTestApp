@@ -17,16 +17,28 @@ class ViewController: UIViewController {
         engine = AudioEngine()
     }
     
-    @IBAction func pressRecord(_ sender: UIButton) {
-             engine.record()
+    @IBAction func startRecording(_ sender: UIButton) {
+             engine.startRecording()
     }
     
-    @IBAction func pressStop(_ sender: UIButton) {
-        engine.stop()
+    @IBAction func stopRecording(_ sender: UIButton) {
+        engine.stopRecording()
     }
  
-    @IBAction func pressPlay(_ sender: UIButton) {
-        engine.play()
+    @IBAction func playOriginal(_ sender: UIButton) {
+        engine.playOriginal()
+    }
+    
+    @IBAction func stopOriginal(_ sender: UIButton) {
+        engine.stopPlayingOriginal()
+    }
+    
+    @IBAction func playProcessed(_ sender: UIButton) {
+        engine.playProcessed()
+    }
+    
+    @IBAction func stopProcessed(_ sender: UIButton) {
+        engine.stopProcessed()
     }
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
