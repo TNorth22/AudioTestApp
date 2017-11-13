@@ -16,26 +16,27 @@ class AudioEngine: NSObject {
     
     private var engine: AVAudioEngine!
     private var distortion: AVAudioUnitDistortion!
+    private var reverb: AVAudioUnitReverb!
+    private var delay: AVAudioUnitDelay!
+    private var shift: AVAudioUnitTimePitch!
+    
     private var playerNode: AVAudioPlayerNode!
     
     private var outputFile: AVAudioFile?
-    
     private var audioPlayer: AVAudioPlayer!
-    
     private var audioRecorder: AVAudioRecorder!
-    
     private var recordingSession: AVAudioSession!
     
     
     override init() {
         super.init()
         
-        
         recordingSession = AVAudioSession.sharedInstance()
         
         do {
             try recordingSession.setCategory(AVAudioSessionCategoryPlayAndRecord)
             try recordingSession.setActive(true)
+            try recordingSession.overrideOutputAudioPort(AVAudioSessionPortOverride.speaker)
             recordingSession.requestRecordPermission() { [unowned self] allowed in
                 DispatchQueue.main.async {
                     if allowed {
@@ -46,37 +47,14 @@ class AudioEngine: NSObject {
                 }
             }
         } catch {
+            print ("failed to setup audio session")
             // failed to record!
         }
         
         
-        let audioFilename = getDocumentsDirectory().appendingPathComponent("/NewRecording.caf")
-
-        engine = AVAudioEngine()
-        let input = engine.inputNode
-        let format = input.inputFormat(forBus: 0)
-        
-
+        let audioFilename = getDocumentsDirectory().appendingPathComponent("NewRecording.mp4")
         print(audioFilename)
-        do {
-            
-            try outputFile = AVAudioFile(forWriting: audioFilename, settings: engine.mainMixerNode.outputFormat(forBus: 0).settings)
-           
-            
-        }
-        catch {
-               print("Couldn't init audio file")
-        }
-        
-        do {
-           
-            try audioPlayer = AVAudioPlayer(contentsOf: audioFilename)
-            
-        }
-        catch {
-            print("Couldn't init audio player")
-        }
-        
+
         
         let settings = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
@@ -86,60 +64,149 @@ class AudioEngine: NSObject {
         ]
         
         do {
-            
             try audioRecorder = AVAudioRecorder(url: audioFilename, settings: settings)
-            
         }
         catch {
             print("Couldn't init audio player")
         }
         
         
+        engine = AVAudioEngine()
+        let input = engine.inputNode
+        let format = input.inputFormat(forBus: 0)
+        
+        playerNode = AVAudioPlayerNode()
+        
         distortion = AVAudioUnitDistortion()
+        distortion.loadFactoryPreset(AVAudioUnitDistortionPreset.multiCellphoneConcert)
+        distortion.wetDryMix = 20
+        
+        reverb = AVAudioUnitReverb()
+        reverb.loadFactoryPreset(AVAudioUnitReverbPreset.largeChamber)
+        reverb.wetDryMix = 15
+        
+        delay = AVAudioUnitDelay()
+        delay.wetDryMix = 0
+        
+        shift = AVAudioUnitTimePitch()
+        shift.pitch = -200
+        
+        engine.attach(playerNode)
         engine.attach(distortion)
-        engine.connect(input, to: distortion, format: format)
-        engine.connect(distortion, to: engine.mainMixerNode, format: format)
+        engine.attach(reverb)
+        engine.attach(delay)
+        engine.attach(shift)
         
-     //   try! engine.start()
+        engine.connect(playerNode, to: distortion, format: format)
+        engine.connect(distortion, to: reverb, format: format)
+        engine.connect(reverb, to: delay, format: format)
+        engine.connect(delay, to: shift, format: format)
+        engine.connect(shift, to: engine.mainMixerNode, format: format)
         
+ 
+        try! engine.start()
     }
     
-    public func record() {
-        
-        print ("recording")
-        
+    public func startRecording() {
+
         audioRecorder.stop()
-        audioPlayer.stop()
         
         audioRecorder.prepareToRecord()
-        audioRecorder.record()
+        let success = audioRecorder.record()
+        
+        print ("recording " + success.description)
     }
     
-    public func processAudio() {
+    
+    public func stopRecording() {
+        print ("stop recording")
+        
+        audioRecorder.stop()
         
     }
     
-    
-    
-    public func play() {
+    public func playOriginal() {
         
-        print ("playing")
+        do {
+            try audioPlayer = AVAudioPlayer(contentsOf: audioRecorder.url)
+            
+            let success = audioPlayer.prepareToPlay()
+            
+            print ("play original " + success.description)
+            
+            audioPlayer.play()
+            
+        } catch {
+             print("Couldn't init audio player")
+        }
+ 
         
-        audioPlayer.stop()
-        engine.stop()
-        engine.reset()
-        
-        audioPlayer.prepareToPlay()
-        audioPlayer.play()
 
     }
     
-    public func stop() {
+    public func stopPlayingOriginal() {
         
-        print ("stopping")
-        audioRecorder.stop()
         audioPlayer.stop()
-        engine.stop()
+    }
+    
+    
+    public func playProcessed() {
+        
+        print ("play processed")
+        
+        do {
+            let audioFile = try AVAudioFile(forReading: audioRecorder.url)
+            
+            
+            let settings = [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 12000,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            ]
+            
+            
+            let fileName = getDocumentsDirectory().appendingPathComponent("processed_recording.mp4")
+            let recordedFile = try AVAudioFile(forWriting: fileName, settings: settings)
+            
+            
+            let tapFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+            
+            
+            engine.mainMixerNode.installTap(onBus: 0, bufferSize: AVAudioFrameCount(audioFile.length), format: tapFormat) {
+                buffer, _ in
+                
+                do {
+                    
+                    if recordedFile.length < audioFile.length {
+                        try recordedFile.write(from: buffer)
+                    }
+                    
+                    
+                } catch {
+                    
+                }
+                
+                
+            }
+            
+            
+            
+            playerNode.scheduleFile(audioFile, at: nil, completionHandler: nil)
+            playerNode.play()
+            
+        } catch {
+            print ("could not schedule file")
+        }
+        
+      
+
+    }
+    
+    public func stopProcessed() {
+        
+        print ("stop playing processed")
+        playerNode.stop()
         
     }
     
@@ -148,10 +215,4 @@ class AudioEngine: NSObject {
         let documentsDirectory = paths[0]
         return documentsDirectory
     }
-    
-    
-    
-    
-    
-    
 }
